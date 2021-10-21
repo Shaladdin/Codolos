@@ -31,9 +31,11 @@ bool search_Found;
 // pin and hardware
 //{
 #define manyDoors 2
-#define buzzer D0
 #define DEBUG true
 SoftwareSerial uno(D4, D3); // RX TX
+
+String message = "";
+bool messageReady = false;
 // }
 
 // LCD stuff
@@ -48,60 +50,87 @@ bool lcdUpdate = false;
 
 // Tik stuff goes here
 //{
-#define TikLength 2
+#define TikLength 3
 unsigned long int Tik[TikLength];
 int Delay[TikLength] =
-    {100, 1000};
+    {100, 1000, 1000};
 //}
 
 void setup()
 {
-    noTone(buzzer);
     Serial.begin(115200);
     SPI.begin();
-
-    // lcd
-    for (int i; i < manyDoors; i++)
-    {
-        lcd[i].begin();
-        lcd[i].backlight();
-    }
-
-    // Tik
-    for (int i; i < TikLength; i++)
-        Tik[i] = Delay[i] + millis();
-
+    uno.begin(4800);
     debugln(F("\nSerial communication started\n"));
 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    debug(F("Connecting to "));
-    debugln(WIFI_SSID);
-
-    int manyDot;
-    String bottomText = WIFI_SSID;
-    String LCDmassage[LCD_height] =
-        {F("Connecting to"), bottomText};
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        if (Tik[1] <= millis())
+    /* lcd*/ {
+        for (int i; i < manyDoors; i++)
         {
-            Tik[1] = millis() + Delay[1];
-            debug(F("."));
-            bottomText += F(".");
-            if (manyDot > 3)
+            lcd[i].begin();
+            lcd[i].backlight();
+        }
+    }
+    /* Tik*/ {
+        for (int i; i < TikLength; i++)
+            Tik[i] = Delay[i] + millis();
+    }
+    /*connect wifi*/ {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        debug(F("Connecting to "));
+        debugln(WIFI_SSID);
+
+        int manyDot;
+        String bottomText = WIFI_SSID;
+        String LCDmassage[LCD_height] =
+            {F("Connecting to"), bottomText};
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            if (Tik[1] <= millis())
             {
-                bottomText = WIFI_SSID;
-                manyDot = 0;
+                Tik[1] = millis() + Delay[1];
+                debug(F("."));
+                bottomText += F(".");
+                if (manyDot > 3)
+                {
+                    bottomText = WIFI_SSID;
+                    manyDot = 0;
+                }
+                manyDot++;
+                LCDmassage[1] = bottomText;
+                writeBothLCD(LCDmassage, true);
             }
-            manyDot++;
-            LCDmassage[1] = bottomText;
-            writeBothLCD(LCDmassage, true);
+        }
+    }
+    /*Start Arduino communication*/ {
+        ARDUINOJSON_USE_LONG_LONG == 1;
+        bool responded = false;
+        while (!responded)
+        {
+            StaticJsonDocument<64> doc = UnoMassage();
+            responded = messageReady && doc["type"] == "response_comunication";
+
+            if (Tik[2] <= millis())
+            {
+                Tik[2] = millis() + Delay[2];
+                StaticJsonDocument<200> syncRequest;
+                syncRequest["type"] = "startComunication";
+                sendJson(&syncRequest);
+            }
         }
     }
 }
 
 void loop()
 {
+    StaticJsonDocument<100> doc = UnoMassage();
+    if (messageReady)
+    {
+        if (doc["type"] == "SendCardData")
+        {
+            unsigned int cardID = doc["cardID"].as<unsigned int>();
+            int onReader = doc["onReader"].as<int>();
+        }
+    }
 
     if (Tik[0] <= millis())
     {
@@ -114,7 +143,7 @@ void loop()
     }
 }
 
-// LC void stuff
+// LCD void stuff
 //  {
 void writeBothLCD(String massage[LCD_height], bool writeItNow)
 {
@@ -144,7 +173,7 @@ void UpdateLCD()
 }
 // }
 
-// account void stuff for
+// account void stuff
 //{
 int search(int tag, int *array)
 {
@@ -171,5 +200,53 @@ void debugln(String massage)
 {
     if (DEBUG)
         Serial.println(massage);
+}
+void debugJson(StaticJsonDocument<200> *doc)
+{
+    if (DEBUG && Serial)
+        serializeJson(*doc, Serial);
+}
+//}
+
+//Hardware functions
+//{
+void sendError(String massage)
+{
+    StaticJsonDocument<200> errorMSG;
+    errorMSG["type"] = "error";
+    errorMSG["message"] = massage;
+    serializeJson(errorMSG, uno);
+    debugJson(&errorMSG);
+}
+void sendJson(StaticJsonDocument<200> *doc)
+{
+    serializeJson(*doc, uno);
+    debugJson(doc);
+}
+StaticJsonDocument<300> UnoMassage()
+{
+    StaticJsonDocument<300> doc;
+    while (Serial.available())
+    {
+        message = Serial.readString();
+        messageReady = true;
+    }
+    while (uno.available())
+    {
+        message = uno.readString();
+        messageReady = true;
+    }
+    if (messageReady)
+    {
+        DeserializationError error = deserializeJson(doc, message);
+        if (error != DeserializationError::Ok)
+        {
+            Serial.print(F("deserializeJson() failed: "));
+            Serial.println(error.c_str());
+            sendError(error.c_str());
+            messageReady = false;
+        }
+    }
+    return doc;
 }
 //}

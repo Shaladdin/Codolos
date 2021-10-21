@@ -27,8 +27,11 @@ const int delay_RFID = 500;
 // "C:\\Users\\LENOVO\\Documents\\Arduino\\libraries\\rfid-master\\src",
 #define DEBUG true
 #define connectionLED 8
+#define Buzzer 3
 const int RFID_LED[2] = {7, 4};
 SoftwareSerial wemos(5, 6); // RX TX
+bool wemosReady = false;
+
 String message = "";
 bool messageReady = false;
 //}
@@ -91,16 +94,26 @@ void loop()
         }
         if (messageReady)
         {
-            StaticJsonDocument<200> doc;
+            StaticJsonDocument<300> doc;
             DeserializationError error = deserializeJson(doc, message);
-            if (error)
+            if (error != DeserializationError::Ok)
             {
                 Serial.print(F("deserializeJson() failed: "));
                 Serial.println(error.c_str());
+                sendError(error.c_str());
                 messageReady = false;
                 return;
             }
+            if (doc["type"] == "startComunication")
+            {
+                StaticJsonDocument<200> response;
+                wemosReady = true;
+                response["type"] = "response_comunication";
+                sendJson(&response);
+            }
         }
+        if (!wemosReady)
+            return;
     } /*RFID*/
     {
         bool cardDetected[manyReaders];
@@ -115,7 +128,14 @@ void loop()
                 {
                     currentIDs[reader] = ReadTag(reader);
                     debugln(String(currentIDs[reader]));
-                    blynk(RFID_LED[reader], 3, 500);
+                    /*Send the data to wemos*/ {
+                        StaticJsonDocument<200> doc;
+                        doc["type"] = "SendCardData";
+                        doc["cardID"] = currentIDs[reader];
+                        doc["onReader"] = reader;
+                        sendJson(&doc);
+                    }
+                    indicate(RFID_LED[reader], 3, Buzzer, 2, 500);
                     onDelay[reader] = true;
                 }
             }
@@ -143,6 +163,11 @@ void debugln(String massage)
     if (DEBUG)
         Serial.println(massage);
 }
+void debugJson(StaticJsonDocument<200> *doc)
+{
+    if (DEBUG && Serial)
+        serializeJson(*doc, Serial);
+}
 // }
 
 // RFID functions
@@ -163,25 +188,38 @@ unsigned int ReadTag(int reader)
 
 // Hardware stuff
 //{
-void blynk(int LED, int howmany, int inDuration)
+void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int inDuration)
 {
-    bool state = true;
-    howmany = howmany * 2;
-    for (int i = 0; i < howmany; i++)
+    bool LEDstate = true;
+    bool buzzerstate = true;
+    howmany_buzzer = howmany_buzzer * 2;
+    howmany_LED = howmany_LED * 2;
+
+    //TODO: make the indicate system using tik instead of delay, not done yet!!!
+
+    for (int i = 0; i < howmany_LED; i++)
     {
-        digitalWrite(LED, state);
-        state = !state;
-        delay(inDuration / howmany);
+        digitalWrite(LED, LEDstate);
+        LEDstate = !LEDstate;
+        delay(inDuration / howmany_LED);
     }
     digitalWrite(LED, 0);
 }
-void sendError(String *massage)
+void sendError(String massage)
 {
     StaticJsonDocument<200> errorMSG;
+    errorMSG["type"] = "error";
+    errorMSG["message"] = massage;
+    sendJson(&errorMSG);
+}
+void sendJson(StaticJsonDocument<200> *doc)
+{
+    serializeJson(*doc, wemos);
+    debugJson(doc);
 }
 // }
 // TODO: Make triple check if the card inserted is not the same card that scanned twice in less than a second
-// not started yet, but not neded in my opinion
+// not started yet, but not neded anyway in my opinion
 
 // TODO: Dont ba a dumbass
 // on progress, but thats hard, dude
