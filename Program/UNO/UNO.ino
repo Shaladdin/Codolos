@@ -18,6 +18,11 @@ bool onDelay[manyReaders];
 
 // Tik stuff
 //  {
+#define TikLength 1
+unsigned long int Tik[TikLength];
+int Delay[TikLength] =
+    {1000};
+
 unsigned long int Tik_RFID[manyReaders];
 const int delay_RFID = 500;
 // }
@@ -31,6 +36,8 @@ const int delay_RFID = 500;
 const int RFID_LED[2] = {7, 4};
 SoftwareSerial wemos(5, 6); // RX TX
 bool wemosReady = false;
+
+bool connectionLEDstate;
 
 String message = "";
 bool messageReady = false;
@@ -63,7 +70,9 @@ void setup()
         int antennaStrength = Reader[reader].PCD_GetAntennaGain();
         if (antennaStrength < 64)
         {
-            debugln("Reader on pin " + String(ssPins[reader]) + F(" is not conected properly"));
+            debugln("Reader on pin " +
+                    String(ssPins[reader]) +
+                    F(" is not conected properly"));
         }
         // Dump some information
         debug("Reader #" + String(reader) + F(" initilised on pin ") +
@@ -76,7 +85,7 @@ void setup()
     }
     //}
     debugln(F("\n--- END SETUP --"));
-    debugln(F("Waiting to connect to wemos..."));
+    debug(F("Waiting to connect to wemos..."));
 }
 
 void loop()
@@ -113,7 +122,16 @@ void loop()
             }
         }
         if (!wemosReady)
+        {
+            if (Tik[0] <= millis())
+            {
+                Tik[0] = millis() + Delay[0];
+                debug(".");
+                digitalWrite(connectionLED, connectionLEDstate);
+                connectionLEDstate = !connectionLEDstate;
+            }
             return;
+        }
     } /*RFID*/
     {
         bool cardDetected[manyReaders];
@@ -135,7 +153,7 @@ void loop()
                         doc["onReader"] = reader;
                         sendJson(&doc);
                     }
-                    indicate(RFID_LED[reader], 3, Buzzer, 2, 500);
+                    indicate(RFID_LED[reader], 3, Buzzer, 2, 600, 500);
                     onDelay[reader] = true;
                 }
             }
@@ -188,21 +206,34 @@ unsigned int ReadTag(int reader)
 
 // Hardware stuff
 //{
-void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int inDuration)
+void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int frequency, int inDuration)
 {
-    bool LEDstate = true;
-    bool buzzerstate = true;
-    howmany_buzzer = howmany_buzzer * 2;
-    howmany_LED = howmany_LED * 2;
+    bool state[2] = {true, true};
+    int howmany[2] = {
+        howmany_LED * 2,
+        howmany_buzzer * 2,
+    };
 
-    //TODO: make the indicate system using tik instead of delay, not done yet!!!
-
-    for (int i = 0; i < howmany_LED; i++)
+    int time = millis() + inDuration;
+    unsigned int Tik_indicator[2];
+    while (time > millis())
     {
-        digitalWrite(LED, LEDstate);
-        LEDstate = !LEDstate;
-        delay(inDuration / howmany_LED);
+        for (int i; i < 2; i++)
+        {
+            if (Tik_indicator[i] <= millis())
+            {
+                Tik_indicator[i] = millis() + inDuration / howmany[i];
+                if (i = 0)
+                    digitalWrite(LED, state[0]);
+                else if (state[0])
+                    tone(buzzer, frequency);
+                else
+                    noTone(buzzer);
+                state[i] = !state[i];
+            }
+        }
     }
+    noTone(buzzer);
     digitalWrite(LED, 0);
 }
 void sendError(String massage)
