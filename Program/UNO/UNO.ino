@@ -32,8 +32,9 @@ const int delay_RFID = 500;
 // "C:\\Users\\LENOVO\\Documents\\Arduino\\libraries\\rfid-master\\src",
 #define DEBUG true
 #define connectionLED 8
-#define Buzzer 3
-const int RFID_LED[2] = {7, 4};
+#define Buzzer 2
+const int buzzerNote[] = {700, 300, 100}; //accept, stratup, deny
+const int RFID_LED[2] = {4, 7};
 SoftwareSerial wemos(5, 6); // RX TX
 bool wemosReady = false;
 
@@ -85,7 +86,7 @@ void setup()
     }
     //}
     debugln(F("\n--- END SETUP --"));
-    debug(F("Waiting to connect to wemos..."));
+    debug(F("Waiting wemos to connect to wifi"));
 }
 
 void loop()
@@ -113,13 +114,15 @@ void loop()
                 messageReady = false;
                 return;
             }
-            if (doc["type"] == "startComunication")
+            if (doc["type"] == "startComunication" && !wemosReady)
             {
                 StaticJsonDocument<200> response;
                 wemosReady = true;
                 response["type"] = "response_comunication";
                 sendJson(&response);
+                indicate(connectionLED, 3, Buzzer, 3, buzzerNote[1], 500);
             }
+            messageReady = false;
         }
         if (!wemosReady)
         {
@@ -132,6 +135,7 @@ void loop()
             }
             return;
         }
+        digitalWrite(connectionLED, HIGH);
     } /*RFID*/
     {
         bool cardDetected[manyReaders];
@@ -145,7 +149,6 @@ void loop()
                 if (cardDetected[reader])
                 {
                     currentIDs[reader] = ReadTag(reader);
-                    debugln(String(currentIDs[reader]));
                     /*Send the data to wemos*/ {
                         StaticJsonDocument<200> doc;
                         doc["type"] = "SendCardData";
@@ -153,7 +156,7 @@ void loop()
                         doc["onReader"] = reader;
                         sendJson(&doc);
                     }
-                    indicate(RFID_LED[reader], 3, Buzzer, 2, 600, 500);
+                    indicate(RFID_LED[reader], 2, Buzzer, 3, buzzerNote[0], 500);
                     onDelay[reader] = true;
                 }
             }
@@ -171,7 +174,7 @@ void loop()
 
 // Debug stuff
 //{
-void debug(String massage)
+void debug(String massage)//send massage to serial, if its on debug mode
 {
     if (DEBUG)
         Serial.print(massage);
@@ -208,22 +211,22 @@ unsigned int ReadTag(int reader)
 //{
 void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int frequency, int inDuration)
 {
-    bool state[2] = {true, true};
+    bool state[2] = {false, false};
     int howmany[2] = {
         howmany_LED * 2,
         howmany_buzzer * 2,
     };
+    unsigned long int time = inDuration + millis();
 
-    int time = millis() + inDuration;
-    unsigned int Tik_indicator[2];
+    unsigned long int Tik_indicator[2] = {0, 0};
     while (time > millis())
     {
-        for (int i; i < 2; i++)
+        for (int i = 0; i < 2; i++)
         {
-            if (Tik_indicator[i] <= millis())
+            if (millis() >= Tik_indicator[i])
             {
                 Tik_indicator[i] = millis() + inDuration / howmany[i];
-                if (i = 0)
+                if (i == 0)
                     digitalWrite(LED, state[0]);
                 else if (state[0])
                     tone(buzzer, frequency);
@@ -236,6 +239,18 @@ void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int freq
     noTone(buzzer);
     digitalWrite(LED, 0);
 }
+void blynk(int LED, int howmany, int duration)
+{
+    howmany = howmany * 2;
+    bool state = true;
+    for (int i = 0; i < howmany; i++)
+    {
+        digitalWrite(LED, state);
+        state = !state;
+        delay(duration / howmany);
+    }
+    digitalWrite(LED, LOW);
+}
 void sendError(String massage)
 {
     StaticJsonDocument<200> errorMSG;
@@ -245,12 +260,8 @@ void sendError(String massage)
 }
 void sendJson(StaticJsonDocument<200> *doc)
 {
+    debugln(F(""));
     serializeJson(*doc, wemos);
     debugJson(doc);
 }
 // }
-// TODO: Make triple check if the card inserted is not the same card that scanned twice in less than a second
-// not started yet, but not neded anyway in my opinion
-
-// TODO: Dont ba a dumbass
-// on progress, but thats hard, dude
