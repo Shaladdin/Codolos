@@ -42,11 +42,13 @@ bool connectionLEDstate;
 
 String message = "";
 bool messageReady = false;
+bool fromSerial = false;
+
 //}
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(57600);
     wemos.begin(4800);
     debugln(F("Serial communication started"));
 
@@ -96,6 +98,7 @@ void loop()
         {
             message = Serial.readString();
             messageReady = true;
+            fromSerial = true;
         }
         while (wemos.available())
         {
@@ -108,8 +111,6 @@ void loop()
             DeserializationError error = deserializeJson(doc, message);
             if (error != DeserializationError::Ok)
             {
-                Serial.print(F("deserializeJson() failed: "));
-                Serial.println(error.c_str());
                 sendError(error.c_str());
                 messageReady = false;
                 return;
@@ -119,7 +120,7 @@ void loop()
                 StaticJsonDocument<200> response;
                 wemosReady = true;
                 response["type"] = "response_comunication";
-                sendJson(&response);
+                sendJson(response);
                 indicate(connectionLED, 3, Buzzer, 3, buzzerNote[1], 500);
             }
             messageReady = false;
@@ -136,6 +137,7 @@ void loop()
             return;
         }
         digitalWrite(connectionLED, HIGH);
+        fromSerial = false;
     } /*RFID*/
     {
         bool cardDetected[manyReaders];
@@ -154,7 +156,7 @@ void loop()
                         doc["type"] = "SendCardData";
                         doc["cardID"] = currentIDs[reader];
                         doc["onReader"] = reader;
-                        sendJson(&doc);
+                        sendJson(doc);
                     }
                     indicate(RFID_LED[reader], 2, Buzzer, 3, buzzerNote[0], 500);
                     onDelay[reader] = true;
@@ -174,7 +176,7 @@ void loop()
 
 // Debug stuff
 //{
-void debug(String massage)//send massage to serial, if its on debug mode
+void debug(String massage) //send massage to serial, if its on debug mode
 {
     if (DEBUG)
         Serial.print(massage);
@@ -184,10 +186,10 @@ void debugln(String massage)
     if (DEBUG)
         Serial.println(massage);
 }
-void debugJson(StaticJsonDocument<200> *doc)
+void debugJson(StaticJsonDocument<200> &doc)
 {
     if (DEBUG && Serial)
-        serializeJson(*doc, Serial);
+        serializeJson(doc, Serial);
 }
 // }
 
@@ -214,7 +216,7 @@ void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int freq
     bool state[2] = {false, false};
     int howmany[2] = {
         howmany_LED * 2,
-        howmany_buzzer * 2,
+        (howmany_buzzer * 2) + 1,
     };
     unsigned long int time = inDuration + millis();
 
@@ -256,12 +258,13 @@ void sendError(String massage)
     StaticJsonDocument<200> errorMSG;
     errorMSG["type"] = "error";
     errorMSG["message"] = massage;
-    sendJson(&errorMSG);
+    sendJson(errorMSG);
 }
-void sendJson(StaticJsonDocument<200> *doc)
+void sendJson(StaticJsonDocument<200> &doc)
 {
     debugln(F(""));
-    serializeJson(*doc, wemos);
+    if (!fromSerial)
+        serializeJson(doc, wemos);
     debugJson(doc);
 }
 // }

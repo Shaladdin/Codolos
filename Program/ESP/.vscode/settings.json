@@ -6,6 +6,9 @@
         "stdexcept": "cpp",
         "streambuf": "cpp",
         "functional": "cpp",
-        "typeinfo": "cpp"
-    }
+        "typeinfo": "cpp",
+        "cstdlib": "cpp",
+        "algorithm": "cpp"
+    },
+    "cmake.configureOnOpen": false
 }

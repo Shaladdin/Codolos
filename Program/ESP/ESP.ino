@@ -9,13 +9,13 @@
 
 // Firebase stuff
 //{
-#define FIREBASE_HOST "project558-default-rtdb.firebaseio.com"   // Your Firebase Project URL goes here without "http:" , "\" and "/"
-#define FIREBASE_AUTH "BOUUYLtfbVJy5zjvU8PCf0BKOJIlDVisgVFvMQKG" // Your Firebase Database Secret goes here
+#define FIREBASE_HOST "codolos-caa52-default-rtdb.firebaseio.com" // Your Firebase Project URL goes here without "http:" , "\" and "/"
+#define FIREBASE_AUTH "HIA7h1oGLooWkk9EG1pn7exC4wuOZxX1Pv2HVXTd"  // Your Firebase Database Secret goes here
 
-#define WIFI_SSID "Mas MHD"              // WiFi SSID to which you want NodeMCU to connect
-#define WIFI_PASSWORD "anaknyinyul17816" // Password of your wifi network
+String WIFI_SSID = "Mas MHD";              // WiFi SSID to which you want NodeMCU to connect
+String WIFI_PASSWORD = "anaknyinyul17816"; // Password of your wifi network
 
-FirebaseData firebaseData;
+FirebaseData FBData;
 
 //}
 
@@ -26,6 +26,8 @@ int *account_inside = NULL;
 int *account_ID = NULL;
 int account_many;
 bool search_Found;
+
+int SearchHolder;
 // }
 
 // pin and hardware
@@ -58,7 +60,7 @@ int Delay[TikLength] =
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(57600);
     SPI.begin();
     uno.begin(4800);
     debugln(F("\nSerial communication started\n"));
@@ -88,6 +90,19 @@ void setup()
             if (Tik[1] <= millis())
             {
                 Tik[1] = millis() + Delay[1];
+                /*Check serial if change wifi*/ {
+                    StaticJsonDocument<200> doc = SerialMassage();
+                    if (doc["type"] == "Change_Wifi")
+                    {
+                        WIFI_SSID = doc["Wifi"].as<String>();
+                        WIFI_PASSWORD = doc["Pasword"].as<String>();
+                        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                        //response
+                        StaticJsonDocument<200> syncRequest;
+                        syncRequest["type"] = "Response_Wifi";
+                        sendJson(syncRequest);
+                    }
+                }
                 debug(F("."));
                 bottomText += F(".");
                 if (manyDot > 3)
@@ -100,13 +115,14 @@ void setup()
                 writeBothLCD(LCDmassage, true);
             }
         }
+        Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
     }
     /*Start Arduino communication*/ {
         ARDUINOJSON_USE_LONG_LONG == 1;
         bool responded = false;
         while (!responded)
         {
-            StaticJsonDocument<64> doc = UnoMassage();
+            StaticJsonDocument<64> doc = SerialMassage();
             responded = messageReady && doc["type"] == "response_comunication";
 
             if (Tik[2] <= millis())
@@ -114,7 +130,7 @@ void setup()
                 Tik[2] = millis() + Delay[2];
                 StaticJsonDocument<200> syncRequest;
                 syncRequest["type"] = "startComunication";
-                sendJson(&syncRequest);
+                sendJson(syncRequest);
             }
         }
     }
@@ -122,7 +138,7 @@ void setup()
 
 void loop()
 {
-    StaticJsonDocument<100> doc = UnoMassage();
+    StaticJsonDocument<100> doc = SerialMassage();
     if (messageReady)
     {
         if (doc["type"] == "SendCardData")
@@ -173,19 +189,64 @@ void UpdateLCD()
 }
 // }
 
-// account void stuff
+// account and data void stuff
 //{
-int search(int tag, int *array)
+template <typename T>
+void DynamicResize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_empety_ones)
+{
+    if (arr == NULL)
+        return;
+    T *placeHolder = new T[currentSize];
+    for (int i = 0; i < currentSize; i++)
+        *(placeHolder + i) = *(arr + i);
+    delete[] arr;
+    arr = new T[newSize];
+    for (int i = 0; i < newSize; i++)
+        *(arr + i) = i < currentSize ? *(placeHolder + i) : value_to_fill_the_empety_ones;
+    currentSize = newSize;
+    delete[] placeHolder;
+}
+template <typename T>
+T DynamicSearch(T LookedFor, T *&array, int &arraySize)
 {
     search_Found = false;
     if (array != NULL)
-        for (int i = 0; i < sizeof(*array); i++)
-            if (array[i] == tag)
+        for (int i = 0; i < arraySize; i++)
+            if (array[i] == LookedFor)
             {
                 search_Found = true;
+                SearchHolder = i;
                 return i;
             }
     return 0;
+}
+int SearchResult()
+{
+    search_Found = false;
+    return SearchHolder;
+};
+void updateData()
+{
+    if (Firebase.getArray(FBData, "Account") && FBData.dataType() == "array")
+    {
+        //TODO
+    }
+}
+void pushData()
+{
+    FirebaseJsonArray ppl_inside;
+    for (int i = 0; i < account_many; i++)
+        ppl_inside.add(*(account_inside + i));
+}
+void pushData_Raw(FirebaseJsonArray &ppl_inside)
+{
+    if (Firebase.setArray(FBData, "PeopleInside", ppl_inside))
+        debugln(F("Sucsesfully Push Data! :D"));
+    else
+    {
+        debugln(F("Failed to PushData, retrying..."));
+        pushData_Raw(ppl_inside);
+    }
 }
 //}
 
@@ -201,10 +262,10 @@ void debugln(String massage)
     if (DEBUG)
         Serial.println(massage);
 }
-void debugJson(StaticJsonDocument<200> *doc)
+void debugJson(StaticJsonDocument<200> &doc)
 {
     if (DEBUG && Serial)
-        serializeJson(*doc, Serial);
+        serializeJson(doc, Serial);
 }
 //}
 
@@ -216,14 +277,14 @@ void sendError(String massage)
     errorMSG["type"] = "error";
     errorMSG["message"] = massage;
     serializeJson(errorMSG, uno);
-    debugJson(&errorMSG);
+    debugJson(errorMSG);
 }
-void sendJson(StaticJsonDocument<200> *doc)
+void sendJson(StaticJsonDocument<200> &doc)
 {
-    serializeJson(*doc, uno);
+    serializeJson(doc, uno);
     debugJson(doc);
 }
-StaticJsonDocument<300> UnoMassage()
+StaticJsonDocument<300> SerialMassage()
 {
     StaticJsonDocument<300> doc;
     while (Serial.available())
