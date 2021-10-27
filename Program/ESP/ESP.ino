@@ -22,12 +22,15 @@ FirebaseData FBData;
 // acount stuff
 //  {
 String *account_name = NULL;
-int *account_inside = NULL;
-int *account_ID = NULL;
+unsigned int *account_inside = NULL;
+unsigned int *account_ID = NULL;
 int account_many;
-bool search_Found;
+int manyPeopleInside;
 
+bool search_Found;
 int SearchHolder;
+
+int currentVersion[5]; //date, month, year, hour, minute
 // }
 
 // pin and hardware
@@ -207,6 +210,14 @@ void DynamicResize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_e
     delete[] placeHolder;
 }
 template <typename T>
+void DynamicReset(T *&arr, int newSize)
+{
+    if (arr == NULL)
+        return;
+    delete[] arr;
+    arr = new T[newSize];
+}
+template <typename T>
 T DynamicSearch(T LookedFor, T *&array, int &arraySize)
 {
     search_Found = false;
@@ -227,37 +238,80 @@ int SearchResult()
 };
 void updateData()
 {
-    if (Firebase.getArray(FBData, "Account") && FBData.dataType() == "array")
+    FirebaseJsonData result;
+    FirebaseJsonArray account_raw[2];
+    String varName[2] = {F("Account_Name"), F("Account_ID")};
+    for (int i = 0; i < 2; i++)
     {
-        //TODO
+        if (!Firebase.getArray(FBData, varName[i]))
+        {
+            debugln(F("ah shit, cant get the data for some reason, here we go again.(im not gonna rety btw, its your problem)"));
+            return;
+        }
+        if (FBData.dataType() != F("array"))
+        {
+            debugln(F("ah shit, wrong data type, here we go again.(im not gonna rety btw, its your problem)"));
+            return;
+        }
+        account_raw[i] = FBData.jsonArray();
     }
+
+    int size = account_raw[0].size();
+    DynamicReset<String>(account_name, size);
+    DynamicReset<unsigned int>(account_ID, size);
+    DynamicResize<unsigned int>(account_inside, account_many, size, 0);
+
+    for (int i = 0; i < size; i++)
+    {
+        account_raw[0].get(result, i);
+        *(account_name + i) = result.stringValue;
+        account_raw[1].get(result, i);
+        *(account_ID) = result.intValue;
+    }
+    account_many = size;
 }
 void pushData()
 {
     FirebaseJsonArray ppl_inside;
-    for (int i = 0; i < account_many; i++)
+    for (int i = 0; i < manyPeopleInside; i++)
         ppl_inside.add(*(account_inside + i));
+    while (!Firebase.setArray(FBData, F("PeopleInside"), ppl_inside))
+        debugln(F("ah shit, Failed to PushData, here we go again..."));
+    debugln(F("Sucsesfully Push Data! :D"));
 }
-void pushData_Raw(FirebaseJsonArray &ppl_inside)
+bool needToUpdate()
 {
-    if (Firebase.setArray(FBData, "PeopleInside", ppl_inside))
-        debugln(F("Sucsesfully Push Data! :D"));
-    else
+    int newVersion[5]; //date, month, year, hour, minute
+
+    if (!Firebase.getArray(FBData, F("DataVersion")))
     {
-        debugln(F("Failed to PushData, retrying..."));
-        pushData_Raw(ppl_inside);
+        debugln(F("ah shit, cant get the data for some reason, here we go again.(im not gonna rety btw, its your problem)"));
+        return;
     }
+    if (FBData.dataType() != "array")
+    {
+        debug(F("ah shit, wrong data type, here we go again.(im not gonna rety btw, its your problem)"));
+        return;
+    }
+    FirebaseJsonData result;
+    FirebaseJsonArray version_raw = FBData.jsonArray();
+    for (int i = 0; i < 5; i++)
+    {
+        version_raw.get(result, i);
+        newVersion[i] = result.intValue;
+    }
+    //TODO return the value
 }
 //}
 
 // DEBUG stuff
 //{
-void debug(String massage)
+void debug(const String &massage)
 {
     if (DEBUG)
         Serial.print(massage);
 }
-void debugln(String massage)
+void debugln(const String &massage)
 {
     if (DEBUG)
         Serial.println(massage);
@@ -271,7 +325,7 @@ void debugJson(StaticJsonDocument<200> &doc)
 
 //Hardware functions
 //{
-void sendError(String massage)
+void sendError(const String &massage)
 {
     StaticJsonDocument<200> errorMSG;
     errorMSG["type"] = "error";

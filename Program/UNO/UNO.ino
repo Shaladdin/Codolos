@@ -176,12 +176,12 @@ void loop()
 
 // Debug stuff
 //{
-void debug(String massage) //send massage to serial, if its on debug mode
+void debug(const String &massage)
 {
     if (DEBUG)
         Serial.print(massage);
 }
-void debugln(String massage)
+void debugln(const String &massage)
 {
     if (DEBUG)
         Serial.println(massage);
@@ -253,7 +253,7 @@ void blynk(int LED, int howmany, int duration)
     }
     digitalWrite(LED, LOW);
 }
-void sendError(String massage)
+void sendError(const String &massage)
 {
     StaticJsonDocument<200> errorMSG;
     errorMSG["type"] = "error";
