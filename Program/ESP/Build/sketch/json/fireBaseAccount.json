@@ -1,0 +1,35 @@
+#line 1 "c:\\Users\\Shaladdin\\GitHub\\Codolos\\Program\\ESP\\json\\fireBaseAccount.json"
+{
+    "data": {
+        "DataVersion": {
+            "date": 28,
+            "month": 10,
+            "year": 2021,
+            "hour": 15,
+            "miute": 28
+        },
+        "Account": [
+            [
+                "M.Sholahuddin",
+                "Khalil Maliq",
+                "Rizky Levy",
+                "Hanung Wiratama",
+                "Shabikha fawas",
+                "Javas Anargya",
+                "Zharatu Alkamalia"
+            ],
+            [
+                51938,
+                26151,
+                42848,
+                14608,
+                56523,
+                1034,
+                25978
+            ]
+        ],
+        "PeopleInside": [
+            "buffer"
+        ]
+    }
+}

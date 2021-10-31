@@ -7,6 +7,19 @@
 #include <Adafruit_MLX90614.h>
 #include <LiquidCrystal_I2C.h>
 
+// pin and hardware
+//{
+#define manyDoors 2
+#define enterence 0
+#define DEBUG true
+SoftwareSerial uno(D4, D3); // RX TX
+
+String message = "";
+bool messageReady = false;
+bool fromSerial = false;
+bool unoReady = false;
+// }
+
 // Firebase stuff
 //{
 #define FIREBASE_HOST "codolos-caa52-default-rtdb.firebaseio.com" // Your Firebase Project URL goes here without "http:" , "\" and "/"
@@ -16,68 +29,56 @@ String WIFI_SSID = "Mas MHD";              // WiFi SSID to which you want NodeMC
 String WIFI_PASSWORD = "anaknyinyul17816"; // Password of your wifi network
 
 FirebaseData FBData;
-
+StaticJsonDocument<800> dataBase;
+// StaticJsonDocument<1100> History;
 //}
 
 // acount stuff
 //  {
 String *account_name = NULL;
-unsigned int *account_inside = NULL;
 unsigned int *account_ID = NULL;
+unsigned int *account_inside = NULL;
+int manyPeopleInside = 0;
 int account_many;
-int manyPeopleInside;
 
 bool search_Found;
 int SearchHolder;
 
-int currentVersion[5]; //date, month, year, hour, minute
-// }
+int currentVersion[5];       //date, month, year, hour, minute
+int VersionOnTheDatabase[5]; //date, month, year, hour, minute
 
-// pin and hardware
-//{
-#define manyDoors 2
-#define DEBUG true
-SoftwareSerial uno(D4, D3); // RX TX
-
-String message = "";
-bool messageReady = false;
 // }
 
 // LCD stuff
 //  {
 #define LCD_height 2
 LiquidCrystal_I2C lcd[manyDoors] =
-    {LiquidCrystal_I2C(0x27, 16, LCD_height),
-     LiquidCrystal_I2C(0x23, 16, LCD_height)};
+    {LiquidCrystal_I2C(0x23, 16, LCD_height),
+     LiquidCrystal_I2C(0x27, 16, LCD_height)};
 String lcdText[LCD_height][manyDoors];
 bool lcdUpdate = false;
 // }
 
 // Tik stuff goes here
 //{
-#define TikLength 3
+#define TikLength 2
 unsigned long int Tik[TikLength];
-int Delay[TikLength] =
-    {100, 1000, 1000};
+int interval[TikLength] =
+    {100, 1000};
 //}
 
 void setup()
 {
     Serial.begin(57600);
-    SPI.begin();
+    SPI.begin(); //Firebase kinda need this idk wtf is this
     uno.begin(4800);
     debugln(F("\nSerial communication started\n"));
-
     /* lcd*/ {
-        for (int i; i < manyDoors; i++)
+        for (int i = 0; i < manyDoors; i++)
         {
             lcd[i].begin();
             lcd[i].backlight();
         }
-    }
-    /* Tik*/ {
-        for (int i; i < TikLength; i++)
-            Tik[i] = Delay[i] + millis();
     }
     /*connect wifi*/ {
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -85,27 +86,26 @@ void setup()
         debugln(WIFI_SSID);
 
         int manyDot;
+        StaticJsonDocument<300> doc;
         String bottomText = WIFI_SSID;
         String LCDmassage[LCD_height] =
             {F("Connecting to"), bottomText};
         while (WiFi.status() != WL_CONNECTED)
         {
+            // changeWifi(doc);
+            if (WiFi.status() == WL_WRONG_PASSWORD)
+            {
+                debugln(F("Wrong pasword you dummy"));
+                LCDmassage[0] = F("wrong pasword");
+                LCDmassage[1] = F("u fukin moron");
+                writeBothLCD(LCDmassage, true);
+                // while (WiFi.status() == WL_WRONG_PASSWORD)
+                //     changeWifi(doc);
+            }
             if (Tik[1] <= millis())
             {
-                Tik[1] = millis() + Delay[1];
-                /*Check serial if change wifi*/ {
-                    StaticJsonDocument<200> doc = SerialMassage();
-                    if (doc["type"] == "Change_Wifi")
-                    {
-                        WIFI_SSID = doc["Wifi"].as<String>();
-                        WIFI_PASSWORD = doc["Pasword"].as<String>();
-                        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-                        //response
-                        StaticJsonDocument<200> syncRequest;
-                        syncRequest["type"] = "Response_Wifi";
-                        sendJson(syncRequest);
-                    }
-                }
+                Tik[1] = millis() + interval[1];
+
                 debug(F("."));
                 bottomText += F(".");
                 if (manyDot > 3)
@@ -117,58 +117,114 @@ void setup()
                 LCDmassage[1] = bottomText;
                 writeBothLCD(LCDmassage, true);
             }
+            delay(100); //it work, no thoucy thoucy
         }
+        LCDmassage[0] = F("Connected to");
+        LCDmassage[1] = WIFI_SSID;
+        writeBothLCD(LCDmassage, true);
+        delay(1000);
         Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
     }
-    /*Start Arduino communication*/ {
+    /*startComunication*/ {
         ARDUINOJSON_USE_LONG_LONG == 1;
-        bool responded = false;
-        while (!responded)
-        {
-            StaticJsonDocument<64> doc = SerialMassage();
-            responded = messageReady && doc["type"] == "response_comunication";
-
-            if (Tik[2] <= millis())
-            {
-                Tik[2] = millis() + Delay[2];
-                StaticJsonDocument<200> syncRequest;
-                syncRequest["type"] = "startComunication";
-                sendJson(syncRequest);
-            }
-        }
+        StaticJsonDocument<200> doc;
+        doc[F("type")] = F("startComunication");
+        sendJson(doc, false);
+    }
+    getDatabase();
+    {
+        for (int i = 0; i < manyDoors; i++)
+            restartLCD(i, false);
     }
 }
 
 void loop()
 {
-    StaticJsonDocument<100> doc = SerialMassage();
-    if (messageReady)
-    {
-        if (doc["type"] == "SendCardData")
+    /*Serial stuff*/ {
+        StaticJsonDocument<300> doc;
+        readSerial(doc);
+        if (messageReady)
         {
-            unsigned int cardID = doc["cardID"].as<unsigned int>();
-            int onReader = doc["onReader"].as<int>();
-        }
-    }
+            if (doc[F("type")] == F("response_comunication") && !unoReady)
+            {
+                unoReady = true;
+                debugln(F("POG CHAMP, DUDE!!!!"));
+            }
+            if (doc[F("type")] == F("lookingForWemos"))
+            {
+                StaticJsonDocument<200> docom = doc;
+                docom[F("type")] = F("startComunication");
+                sendJson(docom, false);
+            }
+            if (doc[F("type")] == F("SendCardData"))
+            {
+                unsigned int cardID = doc[F("cardID")].as<unsigned int>();
+                int onReader = doc[F("onReader")].as<int>();
 
-    if (Tik[0] <= millis())
-    {
-        Tik[0] = millis() + Delay[0];
-        if (lcdUpdate)
-        {
-            UpdateLCD();
-            lcdUpdate = false;
+                writeLCD(onReader, F("Card detected"), 0, true);
+                writeLCD(onReader, F("please wait..."), 1, true);
+                getDatabase();
+                updateData();
+
+                DynamicSearch<unsigned int>(cardID, account_ID, account_many);
+                if (search_Found)
+                {
+                    int IDrequest = SearchResult();
+                    DynamicSearch<unsigned int>(cardID, account_inside, manyPeopleInside);
+
+                    bool onEnterence = onReader == enterence;
+                    bool alreadyHere = search_Found;
+
+                    writeLCD(onReader, onEnterence ? alreadyHere ? F("you already in,") : F("Welcome") : F("good bye"), 0, true);
+
+                    if ((!alreadyHere) && onEnterence)
+                        Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
+                    //TODO
+
+                    writeLCD(onReader, *(account_name + IDrequest), 1, true);
+
+                    delay(3000);
+                    restartLCD(onReader, false);
+                }
+                else
+                {
+                    StaticJsonDocument<200> docom = doc;
+                    docom.clear();
+                    docom[F("type")] = F("card_Unrecognized");
+                    docom[F("onReader")] = onReader;
+                    sendJson(docom, false);
+                    delay(1000);
+                    writeLCD(onReader, F("This card is"), 0, true);
+                    writeLCD(onReader, F("unrecognized"), 1, true);
+                }
+            }
+            if (doc[F("type")] == F("card_Unrecognized_response"))
+            {
+                delay(2000);
+                int onReader = doc[F("onReader")];
+                restartLCD(onReader, false);
+            }
+            fromSerial = false;
+            messageReady = false;
         }
     }
+    LCDmanager();
 }
 
 // LCD void stuff
 //  {
+void restartLCD(int wichlcd, bool now)
+{
+    writeLCD(wichlcd, F("Put your card"), 0, now);
+    writeLCD(wichlcd, F("here"), 1, now);
+}
 void writeBothLCD(String massage[LCD_height], bool writeItNow)
 {
-    for (int i; i < manyDoors; i++)
-        for (int j; j < LCD_height; j++)
-            writeLCD(i, massage[j], j, writeItNow);
+    for (int i = 0; i < manyDoors; i++)
+        for (int j = 0; j < LCD_height; j++)
+            writeLCD(i, massage[j], j, false);
+    if (writeItNow)
+        UpdateLCD();
 }
 void writeLCD(int Wichlcd, String massage, int atLine, bool writeItNow)
 {
@@ -180,40 +236,125 @@ void writeLCD(int Wichlcd, String massage, int atLine, bool writeItNow)
 }
 void UpdateLCD()
 {
-    for (int i; i < manyDoors; i++)
+    for (int i = 0; i < manyDoors; i++)
     {
         lcd[i].clear();
-        for (int j; j < LCD_height; j++)
+        for (int j = 0; j < LCD_height; j++)
         {
             lcd[i].setCursor(0, j);
             lcd[i].print(lcdText[j][i]);
         }
     }
 }
+void LCDmanager()
+{
+    if (Tik[0] <= millis())
+    {
+        Tik[0] = millis() + interval[0];
+        if (lcdUpdate)
+        {
+            UpdateLCD();
+            lcdUpdate = false;
+        }
+    }
+}
 // }
 
-// account and data void stuff
+// DEBUG stuff
+//{
+void debug(const String &massage)
+{
+    if (DEBUG)
+        Serial.print(massage);
+}
+void debugln(const String &massage)
+{
+    if (DEBUG)
+        Serial.println(massage);
+}
+void debugJson(StaticJsonDocument<200> &doc)
+{
+    debugln(F(""));
+    if (DEBUG && Serial)
+        serializeJson(doc, Serial);
+}
+
+//}
+
+//Hardware functions
+//{
+void sendError(const String &massage, bool onlyToSerial)
+{
+    StaticJsonDocument<200> errorMSG;
+    errorMSG[F("type")] = F("error");
+    errorMSG[F("message")] = massage;
+    if (!onlyToSerial)
+        sendJson(errorMSG, false);
+    else
+        debugJson(errorMSG);
+}
+void sendJson(StaticJsonDocument<200> &doc, bool fromUno)
+{
+    debugln(F(""));
+    serializeJson(doc, uno);
+    debugJson(doc);
+    if (fromUno)
+        debugln(F("-fromUno"));
+}
+void readSerial(StaticJsonDocument<300> &doc)
+{
+    while (Serial.available())
+    {
+        message = Serial.readString();
+        messageReady = true;
+        fromSerial = true;
+    }
+    while (uno.available())
+    {
+        message = uno.readString();
+        messageReady = true;
+    }
+
+    if (messageReady)
+    {
+        DeserializationError error = deserializeJson(doc, message);
+        if (error != DeserializationError::Ok)
+        {
+            sendError(error.c_str(), fromSerial);
+            messageReady = false;
+            fromSerial = false;
+            return;
+        }
+        if (!fromSerial)
+        {
+            StaticJsonDocument<200> debugDoc = doc;
+            debugJson(debugDoc);
+            debugln(F("-fromUno"));
+        }
+    }
+}
+// bool changeWifi(StaticJsonDocument<300> &doc)
+// {
+//     readSerial(doc);
+//     if (messageReady)
+//     {
+//         if (doc[F("type")] == F("changeWifi"))
+//         {
+//             WIFI_SSID = doc[F("wifi_ssid")].as<String>();
+//             WIFI_PASSWORD = doc[F("wifi_password")].as<String>();
+//             WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+//             return true;
+//         }
+//     }
+//     return false;
+// }
+//}
+
+//Database functions
 //{
 template <typename T>
-void DynamicResize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_empety_ones)
+void Reset(T *&arr, int newSize)
 {
-    if (arr == NULL)
-        return;
-    T *placeHolder = new T[currentSize];
-    for (int i = 0; i < currentSize; i++)
-        *(placeHolder + i) = *(arr + i);
-    delete[] arr;
-    arr = new T[newSize];
-    for (int i = 0; i < newSize; i++)
-        *(arr + i) = i < currentSize ? *(placeHolder + i) : value_to_fill_the_empety_ones;
-    currentSize = newSize;
-    delete[] placeHolder;
-}
-template <typename T>
-void DynamicReset(T *&arr, int newSize)
-{
-    if (arr == NULL)
-        return;
     delete[] arr;
     arr = new T[newSize];
 }
@@ -231,137 +372,54 @@ T DynamicSearch(T LookedFor, T *&array, int &arraySize)
             }
     return 0;
 }
+template <typename T>
+void Resize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_empety_ones)
+{
+    if (arr == NULL)
+        currentSize = 0;
+    T *placeHolder = new T[currentSize];
+    for (int i = 0; i < currentSize; i++)
+        *(placeHolder + i) = *(arr + i);
+    delete[] arr;
+    arr = new T[newSize];
+    for (int i = 0; i < newSize; i++)
+        *(arr + i) = i < currentSize ? *(placeHolder + i) : value_to_fill_the_empety_ones;
+    currentSize = newSize;
+    delete[] placeHolder;
+}
 int SearchResult()
 {
     search_Found = false;
     return SearchHolder;
 };
+bool getDatabase()
+{
+    if (!Firebase.get(FBData, "/AccountData"))
+    {
+        debugln(F("can't update data"));
+        debugln("why? because " + FBData.errorReason());
+        return false;
+    }
+    FirebaseJson &json = FBData.jsonObject();
+    String str;
+    json.toString(str, true);
+    DeserializationError err = deserializeJson(dataBase, str);
+    if (err != DeserializationError::Ok)
+    {
+        sendError(err.c_str(), true);
+        return false;
+    }
+    return true;
+}
 void updateData()
 {
-    FirebaseJsonData result;
-    FirebaseJsonArray account_raw[2];
-    String varName[2] = {F("Account_Name"), F("Account_ID")};
-    for (int i = 0; i < 2; i++)
+    account_many = dataBase[F("Account")][F("ID")].size();
+    Reset(account_name, account_many);
+    Reset(account_ID, account_many);
+    for (int i = 0; i < account_many; i++)
     {
-        if (!Firebase.getArray(FBData, varName[i]))
-        {
-            debugln(F("ah shit, cant get the data for some reason, here we go again.(im not gonna rety btw, its your problem)"));
-            return;
-        }
-        if (FBData.dataType() != F("array"))
-        {
-            debugln(F("ah shit, wrong data type, here we go again.(im not gonna rety btw, its your problem)"));
-            return;
-        }
-        account_raw[i] = FBData.jsonArray();
+        *(account_name + i) = dataBase[(F("Account"))][F("Name")][i].as<String>();
+        *(account_ID + i) = dataBase[(F("Account"))][F("ID")][i].as<unsigned int>();
     }
-
-    int size = account_raw[0].size();
-    DynamicReset<String>(account_name, size);
-    DynamicReset<unsigned int>(account_ID, size);
-    DynamicResize<unsigned int>(account_inside, account_many, size, 0);
-
-    for (int i = 0; i < size; i++)
-    {
-        account_raw[0].get(result, i);
-        *(account_name + i) = result.stringValue;
-        account_raw[1].get(result, i);
-        *(account_ID) = result.intValue;
-    }
-    account_many = size;
-}
-void pushData()
-{
-    FirebaseJsonArray ppl_inside;
-    for (int i = 0; i < manyPeopleInside; i++)
-        ppl_inside.add(*(account_inside + i));
-    while (!Firebase.setArray(FBData, F("PeopleInside"), ppl_inside))
-        debugln(F("ah shit, Failed to PushData, here we go again..."));
-    debugln(F("Sucsesfully Push Data! :D"));
-}
-bool needToUpdate()
-{
-    int newVersion[5]; //date, month, year, hour, minute
-
-    if (!Firebase.getArray(FBData, F("DataVersion")))
-    {
-        debugln(F("ah shit, cant get the data for some reason, here we go again.(im not gonna rety btw, its your problem)"));
-        return;
-    }
-    if (FBData.dataType() != "array")
-    {
-        debug(F("ah shit, wrong data type, here we go again.(im not gonna rety btw, its your problem)"));
-        return;
-    }
-    FirebaseJsonData result;
-    FirebaseJsonArray version_raw = FBData.jsonArray();
-    for (int i = 0; i < 5; i++)
-    {
-        version_raw.get(result, i);
-        newVersion[i] = result.intValue;
-    }
-    //TODO return the value
-}
-//}
-
-// DEBUG stuff
-//{
-void debug(const String &massage)
-{
-    if (DEBUG)
-        Serial.print(massage);
-}
-void debugln(const String &massage)
-{
-    if (DEBUG)
-        Serial.println(massage);
-}
-void debugJson(StaticJsonDocument<200> &doc)
-{
-    if (DEBUG && Serial)
-        serializeJson(doc, Serial);
-}
-//}
-
-//Hardware functions
-//{
-void sendError(const String &massage)
-{
-    StaticJsonDocument<200> errorMSG;
-    errorMSG["type"] = "error";
-    errorMSG["message"] = massage;
-    serializeJson(errorMSG, uno);
-    debugJson(errorMSG);
-}
-void sendJson(StaticJsonDocument<200> &doc)
-{
-    serializeJson(doc, uno);
-    debugJson(doc);
-}
-StaticJsonDocument<300> SerialMassage()
-{
-    StaticJsonDocument<300> doc;
-    while (Serial.available())
-    {
-        message = Serial.readString();
-        messageReady = true;
-    }
-    while (uno.available())
-    {
-        message = uno.readString();
-        messageReady = true;
-    }
-    if (messageReady)
-    {
-        DeserializationError error = deserializeJson(doc, message);
-        if (error != DeserializationError::Ok)
-        {
-            Serial.print(F("deserializeJson() failed: "));
-            Serial.println(error.c_str());
-            sendError(error.c_str());
-            messageReady = false;
-        }
-    }
-    return doc;
 }
 //}

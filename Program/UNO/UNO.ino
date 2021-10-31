@@ -33,7 +33,7 @@ const int delay_RFID = 500;
 #define DEBUG true
 #define connectionLED 8
 #define Buzzer 2
-const int buzzerNote[] = {700, 300, 100}; //accept, stratup, deny
+const int buzzerNote[] = {1000, 300, 100}; //accept, stratup, deny
 const int RFID_LED[2] = {4, 7};
 SoftwareSerial wemos(5, 6); // RX TX
 bool wemosReady = false;
@@ -87,6 +87,11 @@ void setup()
         delay(100);
     }
     //}
+    //incase the arduino uno restatred alone
+    StaticJsonDocument<200> doc;
+    doc[F("type")] = F("lookingForWemos");
+    sendJson(doc);
+
     debugln(F("\n--- END SETUP --"));
     debug(F("Waiting wemos to connect to wifi"));
 }
@@ -94,51 +99,42 @@ void setup()
 void loop()
 {
     /*Serial*/ {
-        while (Serial.available())
+        StaticJsonDocument<300> doc;
+        readSerial(doc);
+        if (doc[F("type")] == F("startComunication") && !wemosReady)
         {
-            message = Serial.readString();
-            messageReady = true;
-            fromSerial = true;
+            StaticJsonDocument<200> response;
+            wemosReady = true;
+            response[F("type")] = F("response_comunication");
+            sendJson(response);
+            indicate(connectionLED, 3, Buzzer, buzzerNote[1], 500);
         }
-        while (wemos.available())
+        if (doc[F("type")] == F("card_Unrecognized"))
         {
-            message = wemos.readString();
-            messageReady = true;
+            int onReader = doc[F("onReader")];
+            StaticJsonDocument<200> docom = doc;
+            docom.clear();
+            docom[F("type")] = F("card_Unrecognized_response");
+            docom[F("onReader")] = onReader;
+            sendJson(docom);
+            indicate(RFID_LED[onReader], 3, Buzzer, buzzerNote[2], 2000);
         }
-        if (messageReady)
+        messageReady = false;
+    }
+    if (!wemosReady)
+    {
+        if (Tik[0] <= millis())
         {
-            StaticJsonDocument<300> doc;
-            DeserializationError error = deserializeJson(doc, message);
-            if (error != DeserializationError::Ok)
-            {
-                sendError(error.c_str());
-                messageReady = false;
-                return;
-            }
-            if (doc["type"] == "startComunication" && !wemosReady)
-            {
-                StaticJsonDocument<200> response;
-                wemosReady = true;
-                response["type"] = "response_comunication";
-                sendJson(response);
-                indicate(connectionLED, 3, Buzzer, 3, buzzerNote[1], 500);
-            }
-            messageReady = false;
+            Tik[0] = millis() + Delay[0];
+            debug(F("."));
+            digitalWrite(connectionLED, connectionLEDstate);
+            connectionLEDstate = !connectionLEDstate;
         }
-        if (!wemosReady)
-        {
-            if (Tik[0] <= millis())
-            {
-                Tik[0] = millis() + Delay[0];
-                debug(".");
-                digitalWrite(connectionLED, connectionLEDstate);
-                connectionLEDstate = !connectionLEDstate;
-            }
-            return;
-        }
-        digitalWrite(connectionLED, HIGH);
-        fromSerial = false;
-    } /*RFID*/
+        return;
+    }
+    digitalWrite(connectionLED, HIGH);
+    fromSerial = false;
+    /*RFID*/
     {
         bool cardDetected[manyReaders];
         for (uint8_t reader = 0; reader < manyReaders; reader++)
@@ -153,12 +149,12 @@ void loop()
                     currentIDs[reader] = ReadTag(reader);
                     /*Send the data to wemos*/ {
                         StaticJsonDocument<200> doc;
-                        doc["type"] = "SendCardData";
-                        doc["cardID"] = currentIDs[reader];
-                        doc["onReader"] = reader;
+                        doc[F("type")] = F("SendCardData");
+                        doc[F("cardID")] = currentIDs[reader];
+                        doc[F("onReader")] = reader;
                         sendJson(doc);
                     }
-                    indicate(RFID_LED[reader], 2, Buzzer, 3, buzzerNote[0], 500);
+                    indicate(RFID_LED[reader], 2, Buzzer, buzzerNote[0], 500);
                     onDelay[reader] = true;
                 }
             }
@@ -202,7 +198,7 @@ unsigned int ReadTag(int reader)
     String output;
     for (byte i = 0; i < bufferSize; i++)
     {
-        output += buffer[i] < 0x10 ? "0" : "";
+        output += buffer[i] < 0x10 ? F("0") : F("");
         output += String(buffer[i]);
     }
     return +output.toInt();
@@ -211,60 +207,68 @@ unsigned int ReadTag(int reader)
 
 // Hardware stuff
 //{
-void indicate(int LED, int howmany_LED, int buzzer, int howmany_buzzer, int frequency, int inDuration)
-{
-    bool state[2] = {false, false};
-    int howmany[2] = {
-        howmany_LED * 2,
-        (howmany_buzzer * 2) + 1,
-    };
-    unsigned long int time = inDuration + millis();
-
-    unsigned long int Tik_indicator[2] = {0, 0};
-    while (time > millis())
-    {
-        for (int i = 0; i < 2; i++)
-        {
-            if (millis() >= Tik_indicator[i])
-            {
-                Tik_indicator[i] = millis() + inDuration / howmany[i];
-                if (i == 0)
-                    digitalWrite(LED, state[0]);
-                else if (state[0])
-                    tone(buzzer, frequency);
-                else
-                    noTone(buzzer);
-                state[i] = !state[i];
-            }
-        }
-    }
-    noTone(buzzer);
-    digitalWrite(LED, 0);
-}
-void blynk(int LED, int howmany, int duration)
+void indicate(int LED, int howmany, int buzzer, int frequency, int duration)
 {
     howmany = howmany * 2;
     bool state = true;
     for (int i = 0; i < howmany; i++)
     {
         digitalWrite(LED, state);
+        if (state)
+            tone(buzzer, frequency);
+        else
+            noTone(buzzer);
         state = !state;
         delay(duration / howmany);
     }
     digitalWrite(LED, LOW);
+    noTone(buzzer);
 }
-void sendError(const String &massage)
+void sendError(const String &massage, bool onlyToSerial)
 {
     StaticJsonDocument<200> errorMSG;
-    errorMSG["type"] = "error";
-    errorMSG["message"] = massage;
-    sendJson(errorMSG);
+    errorMSG[F("type")] = F("error");
+    errorMSG[F("message")] = massage;
+    if (!onlyToSerial)
+        sendJson(errorMSG);
+    else
+        debugJson(errorMSG);
 }
 void sendJson(StaticJsonDocument<200> &doc)
 {
     debugln(F(""));
-    if (!fromSerial)
-        serializeJson(doc, wemos);
+    serializeJson(doc, wemos);
     debugJson(doc);
+}
+void readSerial(StaticJsonDocument<300> &doc)
+{
+    while (Serial.available())
+    {
+        message = Serial.readString();
+        messageReady = true;
+        fromSerial = true;
+    }
+    while (wemos.available())
+    {
+        message = wemos.readString();
+        messageReady = true;
+    }
+
+    if (messageReady)
+    {
+        DeserializationError error = deserializeJson(doc, message);
+        if (error != DeserializationError::Ok)
+        {
+            sendError(error.c_str(), fromSerial);
+            messageReady = false;
+            fromSerial = false;
+            return;
+        }
+        if (!fromSerial)
+        {
+            StaticJsonDocument<200> debugDoc = doc;
+            debugJson(debugDoc);
+        }
+    }
 }
 // }
