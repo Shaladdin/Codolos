@@ -175,11 +175,28 @@ void loop()
                     bool onEnterence = onReader == enterence;
                     bool alreadyHere = search_Found;
 
-                    writeLCD(onReader, onEnterence ? alreadyHere ? F("you already in,") : F("Welcome") : F("good bye"), 0, true);
+                    writeLCD(onReader, onEnterence ? alreadyHere ? F("You already in,") : F("Welcome") : alreadyHere ? F("Good bye")
+                                                                                                                     : F("You already out,"),            0, true);
 
-                    if ((!alreadyHere) && onEnterence)
-                        Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
-                    //TODO
+                    /*
+                    if not already here, and on enterence = peple get in
+                    if already here, and not on enterence = peple get out
+                    if already Here, and on enterence = litle bastard get out without the machine
+                    if not already here, and not on enterence = random dumbass didnt read the instuction
+                        
+                        truth table:
+                        false false = false
+                        false true = true
+                        true false = true
+                        true true  = false
+
+                    its called xor gate logic, darling, yourwellcome.
+                    */
+                    if (alreadyHere != onEnterence)
+                        if (onEnterence)
+                            Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
+                        else
+                            Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
 
                     writeLCD(onReader, *(account_name + IDrequest), 1, true);
 
@@ -359,20 +376,6 @@ void Reset(T *&arr, int newSize)
     arr = new T[newSize];
 }
 template <typename T>
-T DynamicSearch(T LookedFor, T *&array, int &arraySize)
-{
-    search_Found = false;
-    if (array != NULL)
-        for (int i = 0; i < arraySize; i++)
-            if (array[i] == LookedFor)
-            {
-                search_Found = true;
-                SearchHolder = i;
-                return i;
-            }
-    return 0;
-}
-template <typename T>
 void Resize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_empety_ones)
 {
     if (arr == NULL)
@@ -387,6 +390,27 @@ void Resize(T *&arr, int &currentSize, int newSize, T value_to_fill_the_empety_o
     currentSize = newSize;
     delete[] placeHolder;
 }
+template <typename T>
+void Remove(T *&arr, int &size, int index)
+{
+    for (int i = index; i < size; i++)
+        *(arr + i) = *(arr + i + 1);
+    Resize<T>(arr, size, size - 1, 0);
+}
+template <typename T>
+T DynamicSearch(T LookedFor, T *&array, int &arraySize)
+{
+    search_Found = false;
+    if (array != NULL)
+        for (int i = 0; i < arraySize; i++)
+            if (array[i] == LookedFor)
+            {
+                search_Found = true;
+                SearchHolder = i;
+                return i;
+            }
+    return 0;
+}
 int SearchResult()
 {
     search_Found = false;
@@ -397,7 +421,7 @@ bool getDatabase()
     if (!Firebase.get(FBData, "/AccountData"))
     {
         debugln(F("can't update data"));
-        debugln("why? because " + FBData.errorReason());
+        debugln("why? because " + FBData.errorReason() + F(" aperently."));
         return false;
     }
     FirebaseJson &json = FBData.jsonObject();
@@ -421,5 +445,8 @@ void updateData()
         *(account_name + i) = dataBase[(F("Account"))][F("Name")][i].as<String>();
         *(account_ID + i) = dataBase[(F("Account"))][F("ID")][i].as<unsigned int>();
     }
+}
+void pushData()
+{
 }
 //}
