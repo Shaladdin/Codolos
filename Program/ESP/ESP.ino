@@ -348,7 +348,7 @@ void readSerial(StaticJsonDocument<300> &doc)
 //     }
 //     return false;
 // }
-//}
+// }
 
 //Database functions
 //{
