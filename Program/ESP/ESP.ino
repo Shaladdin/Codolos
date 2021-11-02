@@ -176,7 +176,8 @@ void loop()
                     bool alreadyHere = search_Found;
 
                     writeLCD(onReader, onEnterence ? alreadyHere ? F("You already in,") : F("Welcome") : alreadyHere ? F("Good bye")
-                                                                                                                     : F("You already out,"),            0, true);
+                                                                                                                     : F("You already out,"),
+                             0, true);
 
                     /*
                     if not already here, and on enterence = peple get in
@@ -192,11 +193,19 @@ void loop()
 
                     its called xor gate logic, darling, yourwellcome.
                     */
+
                     if (alreadyHere != onEnterence)
+                    {
                         if (onEnterence)
                             Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
                         else
                             Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
+                    }
+                    pushData();
+                    debugln(F("ppl inside"));
+                    debugln(String(manyPeopleInside));
+                    for (int i = 0; i < manyPeopleInside; i++)
+                        debugln(String(*(account_inside + i)));
 
                     writeLCD(onReader, *(account_name + IDrequest), 1, true);
 
@@ -205,7 +214,7 @@ void loop()
                 }
                 else
                 {
-                    StaticJsonDocument<200> docom = doc;
+                    StaticJsonDocument<200> docom;
                     docom.clear();
                     docom[F("type")] = F("card_Unrecognized");
                     docom[F("onReader")] = onReader;
@@ -448,5 +457,27 @@ void updateData()
 }
 void pushData()
 {
+    FirebaseJsonArray arr;
+    StaticJsonDocument<200> raw_arr;
+
+    if (manyPeopleInside == 0)
+        raw_arr[F("PeopleInside")][0] = F("buffer");
+    else
+        for (int i = 0; i < manyPeopleInside; i++)
+            raw_arr[F("PeopleInside")][i] = *(account_inside + i);
+    arr.setJsonArrayData(raw_arr[(F("PeopleInside"))].as<String>());
+
+    String out;
+    arr.toString(out, false);
+    debugln(out);
+
+    if (Firebase.setArray(FBData, F("/PeopleInside"), arr))
+        debugln(F("Pog champ"));
+    else
+    {
+        debugln(F("Brog camp"));
+        debugln(F("can't update data"));
+        debugln("why? because " + FBData.errorReason() + F(" aperently."));
+    }
 }
 //}
