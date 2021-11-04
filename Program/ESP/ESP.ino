@@ -170,6 +170,7 @@ void loop()
                 DynamicSearch<unsigned int>(cardID, account_ID, account_many);
                 bool sendCardError = !search_Found;
                 bool resetItself = false;
+                
                 if (search_Found)
                 {
                     int IDrequest = SearchResult();
@@ -208,10 +209,11 @@ void loop()
                         {
                             Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
                             writeLCD(onReader, F("Farewell,"), 0, false);
-                            writeDaName = true;
                             pushData();
                         }
-                        writeLCD(onReader, F("You already out,"), 0, true);
+                        else
+                            writeLCD(onReader, F("You already out,"), 0, false);
+                        writeDaName = true;
                     }
                     if (writeDaName)
                         writeLCD(onReader, *(account_name + IDrequest), 1, true);
@@ -484,11 +486,18 @@ void pushData()
 {
     if (Firebase.getInt(FBData, F("/PeopleInside/0")))
     {
+        debugln(F("POG"));
         int currentSize = FBData.intData();
-        for (int i = currentSize; i > 0; i--)
-        {
+        for (int i = currentSize; i > manyPeopleInside; i--)
             Firebase.deleteNode(FBData, F("/PeopleInside/") + String(i));
+        for (int i = manyPeopleInside; i > 0; i--)
+        {
+            if (!Firebase.setInt(FBData, F("/PeopleInside/") + String(i), *(account_inside + i - 1)))
+                debugln(F("Error at index") + String(i));
+            else
+                debugln(String(*(account_inside + i - 1)));
         }
+        Firebase.setInt(FBData, F("/PeopleInside/") + String(0), manyPeopleInside);
     }
 }
 //}
