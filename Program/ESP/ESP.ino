@@ -35,6 +35,7 @@ StaticJsonDocument<800> dataBase;
 
 // acount stuff
 //  {
+#define maxPpl 4
 String *account_name = NULL;
 unsigned int *account_ID = NULL;
 unsigned int *account_inside = NULL;
@@ -167,6 +168,8 @@ void loop()
                 updateData();
 
                 DynamicSearch<unsigned int>(cardID, account_ID, account_many);
+                bool sendCardError = !search_Found;
+                bool resetItself = false;
                 if (search_Found)
                 {
                     int IDrequest = SearchResult();
@@ -175,56 +178,78 @@ void loop()
                     bool onEnterence = onReader == enterence;
                     bool alreadyHere = search_Found;
 
-                    writeLCD(onReader, onEnterence ? alreadyHere ? F("You already in,") : F("Welcome") : alreadyHere ? F("Good bye")
-                                                                                                                     : F("You already out,"),
-                             0, true);
-
-                    /*
-                    if not already here, and on enterence = peple get in
-                    if already here, and not on enterence = peple get out
-                    if already Here, and on enterence = litle bastard get out without the machine
-                    if not already here, and not on enterence = random dumbass didnt read the instuction
-                        
-                        truth table:
-                        false false = false
-                        false true = true
-                        true false = true
-                        true true  = false
-
-                    its called xor gate logic, darling, yourwellcome.
-                    */
-
-                    if (alreadyHere != onEnterence)
+                    bool writeDaName = false;
+                    if (onEnterence)
                     {
-                        if (onEnterence)
-                            Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
+                        if (!alreadyHere)
+                        {
+                            if (manyPeopleInside < maxPpl)
+                            {
+                                Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
+                                writeLCD(onReader, F("Welcome"), 0, false);
+                                writeDaName = true;
+                                pushData();
+                            }
+                            else
+                            {
+                                sendCardError = true;
+                                resetItself = true;
+                            }
+                        }
                         else
-                            Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
+                        {
+                            writeLCD(onReader, F("You already in"), 0, false);
+                            writeDaName = true;
+                        }
                     }
-                    pushData();
+                    else
+                    {
+                        if (alreadyHere)
+                        {
+                            Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
+                            writeLCD(onReader, F("Farewell,"), 0, false);
+                            writeDaName = true;
+                            pushData();
+                        }
+                        writeLCD(onReader, F("You already out,"), 0, true);
+                    }
+                    if (writeDaName)
+                        writeLCD(onReader, *(account_name + IDrequest), 1, true);
+
+                    //!dont forget to remove dez
                     debugln(F("ppl inside"));
                     debugln(String(manyPeopleInside));
                     for (int i = 0; i < manyPeopleInside; i++)
                         debugln(String(*(account_inside + i)));
+                    //!
 
-                    writeLCD(onReader, *(account_name + IDrequest), 1, true);
-
-                    delay(3000);
-                    restartLCD(onReader, false);
+                    if (!resetItself)
+                    {
+                        delay(3000);
+                        restartLCD(onReader, false);
+                    }
                 }
-                else
+                if (sendCardError)
                 {
                     StaticJsonDocument<200> docom;
                     docom.clear();
-                    docom[F("type")] = F("card_Unrecognized");
+                    docom[F("type")] = F("card_error");
                     docom[F("onReader")] = onReader;
                     sendJson(docom, false);
                     delay(1000);
-                    writeLCD(onReader, F("This card is"), 0, true);
-                    writeLCD(onReader, F("unrecognized"), 1, true);
+                    if (!search_Found)
+                    {
+                        writeLCD(onReader, F("This card is"), 0, false);
+                        writeLCD(onReader, F("unrecognized"), 1, true);
+                    }
+                    else
+                    {
+                        writeLCD(onReader, F("Sorry, building"), 0, false);
+                        writeLCD(onReader, F("is to full!"), 1, true);
+                    }
                 }
             }
-            if (doc[F("type")] == F("card_Unrecognized_response"))
+            if (doc[F("type")] == F("card_error_response"))
             {
                 delay(2000);
                 int onReader = doc[F("onReader")];
@@ -457,27 +482,13 @@ void updateData()
 }
 void pushData()
 {
-    FirebaseJsonArray arr;
-    StaticJsonDocument<200> raw_arr;
-
-    if (manyPeopleInside == 0)
-        raw_arr[F("PeopleInside")][0] = F("buffer");
-    else
-        for (int i = 0; i < manyPeopleInside; i++)
-            raw_arr[F("PeopleInside")][i] = *(account_inside + i);
-    arr.setJsonArrayData(raw_arr[(F("PeopleInside"))].as<String>());
-
-    String out;
-    arr.toString(out, false);
-    debugln(out);
-
-    if (Firebase.setArray(FBData, F("/PeopleInside"), arr))
-        debugln(F("Pog champ"));
-    else
+    if (Firebase.getInt(FBData, F("/PeopleInside/0")))
     {
-        debugln(F("Brog camp"));
-        debugln(F("can't update data"));
-        debugln("why? because " + FBData.errorReason() + F(" aperently."));
+        int currentSize = FBData.intData();
+        for (int i = currentSize; i > 0; i--)
+        {
+            Firebase.deleteNode(FBData, F("/PeopleInside/") + String(i));
+        }
     }
 }
 //}

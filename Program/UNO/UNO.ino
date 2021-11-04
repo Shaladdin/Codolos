@@ -109,12 +109,12 @@ void loop()
             sendJson(response);
             indicate(connectionLED, 3, Buzzer, buzzerNote[1], 500);
         }
-        if (doc[F("type")] == F("card_Unrecognized"))
+        if (doc[F("type")] == F("card_error"))
         {
             int onReader = doc[F("onReader")];
             StaticJsonDocument<200> docom = doc;
             docom.clear();
-            docom[F("type")] = F("card_Unrecognized_response");
+            docom[F("type")] = F("card_error_response");
             docom[F("onReader")] = onReader;
             sendJson(docom);
             indicate(RFID_LED[onReader], 3, Buzzer, buzzerNote[2], 2000);
