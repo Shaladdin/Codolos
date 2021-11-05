@@ -43,7 +43,6 @@ bool connectionLEDstate;
 String message = "";
 bool messageReady = false;
 bool fromSerial = false;
-
 //}
 
 void setup()
@@ -109,15 +108,20 @@ void loop()
             sendJson(response);
             indicate(connectionLED, 3, Buzzer, buzzerNote[1], 500);
         }
-        if (doc[F("type")] == F("card_error"))
+        if (doc[F("type")] == F("not_allowed"))
         {
             int onReader = doc[F("onReader")];
-            StaticJsonDocument<200> docom = doc;
-            docom.clear();
-            docom[F("type")] = F("card_error_response");
+            StaticJsonDocument<200> docom;
+            docom[F("type")] = F("not_allowed_response");
             docom[F("onReader")] = onReader;
+            onDelay[onReader] = false;
             sendJson(docom);
             indicate(RFID_LED[onReader], 3, Buzzer, buzzerNote[2], 2000);
+        }
+        if (doc[F("type")] == F("allowed"))
+        {
+            int onReader = doc[F("onReader")].as<int>();
+            onDelay[onReader] = false;
         }
         messageReady = false;
     }
@@ -160,11 +164,6 @@ void loop()
             }
             else
             {
-                if (millis() > Tik_RFID[reader])
-                {
-                    Tik_RFID[reader] = millis() + delay_RFID;
-                    onDelay[reader] = cardDetected[reader];
-                }
             }
         }
     }

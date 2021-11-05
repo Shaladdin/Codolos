@@ -12,6 +12,9 @@
 #define manyDoors 2
 #define enterence 0
 #define DEBUG true
+#define trigPin D8
+#define echoPin A0
+#define closeDistance 5.0
 SoftwareSerial uno(D4, D3); // RX TX
 
 String message = "";
@@ -73,6 +76,8 @@ void setup()
     Serial.begin(57600);
     SPI.begin(); //Firebase kinda need this idk wtf is this
     uno.begin(4800);
+    pinMode(trigPin, OUTPUT);
+    pinMode(echoPin, INPUT);
     debugln(F("\nSerial communication started\n"));
     /* lcd*/ {
         for (int i = 0; i < manyDoors; i++)
@@ -168,9 +173,12 @@ void loop()
                 updateData();
 
                 DynamicSearch<unsigned int>(cardID, account_ID, account_many);
-                bool sendCardError = !search_Found;
+                bool notAllowed = !search_Found;
+                bool notFound = !search_Found;
                 bool resetItself = false;
-                
+                bool pushIt = false;
+                bool full = manyPeopleInside > maxPpl;
+
                 if (search_Found)
                 {
                     int IDrequest = SearchResult();
@@ -184,16 +192,16 @@ void loop()
                     {
                         if (!alreadyHere)
                         {
-                            if (manyPeopleInside < maxPpl)
+                            if (!full)
                             {
                                 Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
                                 writeLCD(onReader, F("Welcome"), 0, false);
                                 writeDaName = true;
-                                pushData();
+                                pushIt = true;
                             }
                             else
                             {
-                                sendCardError = true;
+                                notAllowed = true;
                                 resetItself = true;
                             }
                         }
@@ -209,49 +217,63 @@ void loop()
                         {
                             Remove<unsigned int>(account_inside, manyPeopleInside, SearchResult());
                             writeLCD(onReader, F("Farewell,"), 0, false);
-                            pushData();
+                            pushIt = true;
                         }
                         else
                             writeLCD(onReader, F("You already out,"), 0, false);
                         writeDaName = true;
                     }
+
                     if (writeDaName)
                         writeLCD(onReader, *(account_name + IDrequest), 1, true);
 
-                    //!dont forget to remove dez
-                    debugln(F("ppl inside"));
-                    debugln(String(manyPeopleInside));
-                    for (int i = 0; i < manyPeopleInside; i++)
-                        debugln(String(*(account_inside + i)));
-                    //!
+                    if (pushIt)
+                        pushData();
 
                     if (!resetItself)
                     {
                         delay(3000);
-                        restartLCD(onReader, false);
+                        restartLCD(onReader, true);
                     }
                 }
-                if (sendCardError)
+
+                StaticJsonDocument<200> docom;
+                if (notAllowed)
                 {
-                    StaticJsonDocument<200> docom;
-                    docom.clear();
-                    docom[F("type")] = F("card_error");
+                    docom[F("type")] = F("not_allowed");
                     docom[F("onReader")] = onReader;
                     sendJson(docom, false);
                     delay(1000);
-                    if (!search_Found)
+                    if (notFound)
                     {
                         writeLCD(onReader, F("This card is"), 0, false);
                         writeLCD(onReader, F("unrecognized"), 1, true);
                     }
-                    else
+                    else if (full)
                     {
                         writeLCD(onReader, F("Sorry, building"), 0, false);
                         writeLCD(onReader, F("is to full!"), 1, true);
                     }
                 }
+                else
+                {
+                    docom[F("type")] = F("allowed");
+                    docom[F("onReader")] = onReader;
+                    sendJson(docom, false);
+                }
+
+                bool closeEnough = false;
+                if (!full && pushIt)
+                {
+                    while (!closeEnough)
+                    {
+                        float dist = readDistance();
+                        closeEnough = dist <= closeDistance && dist != 0.0f;
+                        debugln(String(dist));
+                    }
+                }
             }
-            if (doc[F("type")] == F("card_error_response"))
+            if (doc[F("type")] == F("not_allowed_response"))
             {
                 delay(2000);
                 int onReader = doc[F("onReader")];
@@ -331,7 +353,6 @@ void debugJson(StaticJsonDocument<200> &doc)
     if (DEBUG && Serial)
         serializeJson(doc, Serial);
 }
-
 //}
 
 //Hardware functions
@@ -385,6 +406,14 @@ void readSerial(StaticJsonDocument<300> &doc)
             debugln(F("-fromUno"));
         }
     }
+}
+float readDistance()
+{
+    digitalWrite(trigPin, LOW);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    return 0.0001 * ((float)pulseIn(echoPin, HIGH) * 340.0 / 2.0);
 }
 // bool changeWifi(StaticJsonDocument<300> &doc)
 // {
