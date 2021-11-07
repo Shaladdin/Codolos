@@ -30,8 +30,13 @@ const int delay_RFID = 500;
 // Hardware stuff
 //{
 // "C:\\Users\\LENOVO\\Documents\\Arduino\\libraries\\rfid-master\\src",
-#define DEBUG true
+#define trigPin A0
+#define echoPin A1
+#define tempIndicator A2
+#define closeDistance 6.0
+
 #define connectionLED 8
+#define DEBUG true
 #define Buzzer 2
 const int buzzerNote[] = {1000, 300, 100}; //accept, stratup, deny
 const int RFID_LED[2] = {4, 7};
@@ -56,6 +61,9 @@ void setup()
     for (int i = 0; i < sizeof(RFID_LED); i++)
         pinMode(RFID_LED[i], OUTPUT);
     pinMode(connectionLED, OUTPUT);
+    pinMode(trigPin, OUTPUT);
+    pinMode(echoPin, INPUT);
+    pinMode(tempIndicator, OUTPUT);
     //}
 
     // RFID stuff
@@ -121,6 +129,20 @@ void loop()
         if (doc[F("type")] == F("allowed"))
         {
             int onReader = doc[F("onReader")].as<int>();
+            if (doc[F("readTemp")].as<bool>())
+            {
+                bool closeEnough = false;
+                while (!closeEnough)
+                {
+                    float distance = readDistance();
+                    debugln(String(distance));
+                    closeEnough = distance <= closeDistance && distance != 0;
+                }
+                digitalWrite(tempIndicator, HIGH);
+                delay(1);
+                digitalWrite(tempIndicator, LOW);
+                debugln(F("got it boss!"));
+            }
             onDelay[onReader] = false;
         }
         messageReady = false;
@@ -161,9 +183,6 @@ void loop()
                     indicate(RFID_LED[reader], 2, Buzzer, buzzerNote[0], 500);
                     onDelay[reader] = true;
                 }
-            }
-            else
-            {
             }
         }
     }
@@ -269,5 +288,13 @@ void readSerial(StaticJsonDocument<300> &doc)
             debugJson(debugDoc);
         }
     }
+}
+float readDistance()
+{
+    digitalWrite(trigPin, HIGH);
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, HIGH);
+    return 0.0001 * ((float)pulseIn(echoPin, LOW) * 340.0 / 2.0);
 }
 // }

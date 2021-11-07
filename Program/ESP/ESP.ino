@@ -9,18 +9,17 @@
 
 // pin and hardware
 //{
+#define tempIndicator D8
 #define manyDoors 2
 #define enterence 0
 #define DEBUG true
-#define trigPin D8
-#define echoPin A0
-#define closeDistance 5.0
 SoftwareSerial uno(D4, D3); // RX TX
 
 String message = "";
 bool messageReady = false;
 bool fromSerial = false;
 bool unoReady = false;
+
 // }
 
 // Firebase stuff
@@ -76,9 +75,9 @@ void setup()
     Serial.begin(57600);
     SPI.begin(); //Firebase kinda need this idk wtf is this
     uno.begin(4800);
-    pinMode(trigPin, OUTPUT);
-    pinMode(echoPin, INPUT);
     debugln(F("\nSerial communication started\n"));
+
+    pinMode(tempIndicator, INPUT);
     /* lcd*/ {
         for (int i = 0; i < manyDoors; i++)
         {
@@ -167,7 +166,7 @@ void loop()
                 unsigned int cardID = doc[F("cardID")].as<unsigned int>();
                 int onReader = doc[F("onReader")].as<int>();
 
-                writeLCD(onReader, F("Card detected"), 0, true);
+                writeLCD(onReader, F("Card detected"), 0, false);
                 writeLCD(onReader, F("please wait..."), 1, true);
                 getDatabase();
                 updateData();
@@ -178,6 +177,7 @@ void loop()
                 bool resetItself = false;
                 bool pushIt = false;
                 bool full = manyPeopleInside > maxPpl;
+                bool readTemp = false;
 
                 if (search_Found)
                 {
@@ -186,6 +186,7 @@ void loop()
 
                     bool onEnterence = onReader == enterence;
                     bool alreadyHere = search_Found;
+                    readTemp = onEnterence && !alreadyHere && !full;
 
                     bool writeDaName = false;
                     if (onEnterence)
@@ -227,14 +228,24 @@ void loop()
                     if (writeDaName)
                         writeLCD(onReader, *(account_name + IDrequest), 1, true);
 
-                    if (pushIt)
-                        pushData();
-
-                    if (!resetItself)
+                    if (readTemp)
                     {
                         delay(3000);
+                        writeLCD(onReader, F("Please measure"), 0, false);
+                        writeLCD(onReader, F("your temperature"), 1, true);
+                        sendAllow(true, onReader);
+                        while (!digitalRead(tempIndicator))
+                            ;
+                        debugln("got it boss");
+                    }
+                    if (!resetItself)
+                    {
+                        if (!readTemp)
+                            delay(3000);
                         restartLCD(onReader, true);
                     }
+                    if (pushIt)
+                        pushData();
                 }
 
                 StaticJsonDocument<200> docom;
@@ -255,23 +266,8 @@ void loop()
                         writeLCD(onReader, F("is to full!"), 1, true);
                     }
                 }
-                else
-                {
-                    docom[F("type")] = F("allowed");
-                    docom[F("onReader")] = onReader;
-                    sendJson(docom, false);
-                }
-
-                bool closeEnough = false;
-                if (!full && pushIt)
-                {
-                    while (!closeEnough)
-                    {
-                        float dist = readDistance();
-                        closeEnough = dist <= closeDistance && dist != 0.0f;
-                        debugln(String(dist));
-                    }
-                }
+                else if (!readTemp)
+                    sendAllow(readTemp, onReader);
             }
             if (doc[F("type")] == F("not_allowed_response"))
             {
@@ -357,6 +353,14 @@ void debugJson(StaticJsonDocument<200> &doc)
 
 //Hardware functions
 //{
+void sendAllow(const bool &readTemp, const int &onReader)
+{
+    StaticJsonDocument<200> doc;
+    doc[F("type")] = F("allowed");
+    doc[F("onReader")] = onReader;
+    doc[F("readTemp")] = readTemp;
+    sendJson(doc, false);
+}
 void sendError(const String &massage, bool onlyToSerial)
 {
     StaticJsonDocument<200> errorMSG;
@@ -406,14 +410,6 @@ void readSerial(StaticJsonDocument<300> &doc)
             debugln(F("-fromUno"));
         }
     }
-}
-float readDistance()
-{
-    digitalWrite(trigPin, LOW);
-    digitalWrite(trigPin, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
-    return 0.0001 * ((float)pulseIn(echoPin, HIGH) * 340.0 / 2.0);
 }
 // bool changeWifi(StaticJsonDocument<300> &doc)
 // {
