@@ -133,13 +133,12 @@ void loop()
             {
                 bool closeEnough = false;
                 while (!closeEnough)
-                {
+                {   
                     float distance = readDistance();
-                    debugln(String(distance));
                     closeEnough = distance <= closeDistance && distance != 0;
                 }
                 digitalWrite(tempIndicator, HIGH);
-                delay(1);
+                delay(100);
                 digitalWrite(tempIndicator, LOW);
                 debugln(F("got it boss!"));
             }
@@ -291,10 +290,10 @@ void readSerial(StaticJsonDocument<300> &doc)
 }
 float readDistance()
 {
-    digitalWrite(trigPin, HIGH);
     digitalWrite(trigPin, LOW);
-    delayMicroseconds(10);
     digitalWrite(trigPin, HIGH);
-    return 0.0001 * ((float)pulseIn(echoPin, LOW) * 340.0 / 2.0);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    return 0.0001 * ((float)pulseIn(echoPin, HIGH) * 340.0 / 2.0);
 }
 // }

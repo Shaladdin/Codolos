@@ -9,7 +9,6 @@
 
 // pin and hardware
 //{
-#define tempIndicator D8
 #define manyDoors 2
 #define enterence 0
 #define DEBUG true
@@ -19,8 +18,21 @@ String message = "";
 bool messageReady = false;
 bool fromSerial = false;
 bool unoReady = false;
-
 // }
+
+// temperature sensor stuff
+//{
+Adafruit_MLX90614 tempSensor = Adafruit_MLX90614();
+#define tempIndicator D8
+#define maxTemp 37.0f
+//}
+
+// Servo stuff
+//{
+Servo servo[manyDoors][2];
+const int servoPins[manyDoors][2] = {{D7, D6}, {D5, D0}};
+const int servoDegre[2][2] = {{0, 189}, {0, 180}};
+//}
 
 // Firebase stuff
 //{
@@ -47,8 +59,8 @@ int account_many;
 bool search_Found;
 int SearchHolder;
 
-int currentVersion[5];       //date, month, year, hour, minute
-int VersionOnTheDatabase[5]; //date, month, year, hour, minute
+int currentVersion[5];       // date, month, year, hour, minute
+int VersionOnTheDatabase[5]; // date, month, year, hour, minute
 
 // }
 
@@ -73,14 +85,19 @@ int interval[TikLength] =
 void setup()
 {
     Serial.begin(57600);
-    SPI.begin(); //Firebase kinda need this idk wtf is this
+    SPI.begin(); // Firebase kinda need this idk wtf is this
     uno.begin(4800);
     debugln(F("\nSerial communication started\n"));
-
+    tempSensor.begin();
     pinMode(tempIndicator, INPUT);
-    /* lcd*/ {
+    /* lcds and servos*/ {
         for (int i = 0; i < manyDoors; i++)
         {
+            for (int j = 0; j < 2; j++)
+            {
+                servo[i][j].attach(servoPins[i][j]);
+                servo[i][j].write(0);
+            }
             lcd[i].begin();
             lcd[i].backlight();
         }
@@ -122,7 +139,7 @@ void setup()
                 LCDmassage[1] = bottomText;
                 writeBothLCD(LCDmassage, true);
             }
-            delay(100); //it work, no thoucy thoucy
+            delay(100); // it work, no thoucy thoucy
         }
         LCDmassage[0] = F("Connected to");
         LCDmassage[1] = WIFI_SSID;
@@ -195,7 +212,6 @@ void loop()
                         {
                             if (!full)
                             {
-                                Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
                                 writeLCD(onReader, F("Welcome"), 0, false);
                                 writeDaName = true;
                                 pushIt = true;
@@ -230,18 +246,32 @@ void loop()
 
                     if (readTemp)
                     {
-                        delay(3000);
+                        delay(2000);
                         writeLCD(onReader, F("Please measure"), 0, false);
                         writeLCD(onReader, F("your temperature"), 1, true);
                         sendAllow(true, onReader);
                         while (!digitalRead(tempIndicator))
-                            ;
-                        debugln("got it boss");
+                            delay(10);
+                        delay(1000);
+                        tempSensor.readObjectTempC(); // ignore this, it work, so stfu
+                        float temp = tempSensor.readObjectTempC();
+                        if (temp < maxTemp)
+                        {
+                            debugln(temp);
+                            writeLCD(onReader, F("Your temp is ") + String(int(round(temp))), 0, false);
+                            writeLCD(onReader, F("you can come in"), 1, true);
+                            Resize<unsigned int>(account_inside, manyPeopleInside, manyPeopleInside + 1, *(account_ID + IDrequest));
+                        }
+                        else
+                        {
+                            pushIt = false;
+                            writeLCD(onReader, F("Your temp is ") + String(int(round(temp))), 0, false);
+                            writeLCD(onReader, F("you cant come in"), 1, true);
+                        }
                     }
                     if (!resetItself)
                     {
-                        if (!readTemp)
-                            delay(3000);
+                        delay(3000);
                         restartLCD(onReader, true);
                     }
                     if (pushIt)
@@ -338,10 +368,19 @@ void debug(const String &massage)
     if (DEBUG)
         Serial.print(massage);
 }
+void debugln()
+{
+    debugln(F(""));
+}
 void debugln(const String &massage)
 {
     if (DEBUG)
         Serial.println(massage);
+}
+template <typename T>
+void debugln(T massage)
+{
+    debugln(String(massage));
 }
 void debugJson(StaticJsonDocument<200> &doc)
 {
@@ -351,7 +390,7 @@ void debugJson(StaticJsonDocument<200> &doc)
 }
 //}
 
-//Hardware functions
+// Hardware functions
 //{
 void sendAllow(const bool &readTemp, const int &onReader)
 {
@@ -428,7 +467,7 @@ void readSerial(StaticJsonDocument<300> &doc)
 // }
 // }
 
-//Database functions
+// Database functions
 //{
 template <typename T>
 void Reset(T *&arr, int newSize)
@@ -482,7 +521,7 @@ bool getDatabase()
     if (!Firebase.get(FBData, "/AccountData"))
     {
         debugln(F("can't update data"));
-        debugln("why? because " + FBData.errorReason() + F(" aperently."));
+        debugln(F("why? because ") + FBData.errorReason() + F(" aperently."));
         return false;
     }
     FirebaseJson &json = FBData.jsonObject();
@@ -520,7 +559,7 @@ void pushData()
             if (!Firebase.setInt(FBData, F("/PeopleInside/") + String(i), *(account_inside + i - 1)))
                 debugln(F("Error at index") + String(i));
             else
-                debugln(String(*(account_inside + i - 1)));
+                debugln(*(account_inside + i - 1));
         }
         Firebase.setInt(FBData, F("/PeopleInside/") + String(0), manyPeopleInside);
     }
